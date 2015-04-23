@@ -1,0 +1,53 @@
+#!/bin/sh
+# vim:ts=2 sw=2 expandtab
+# set -x
+
+SHELL=$@
+DUMP_PULSE="ffmpeg -f alsa -ac 2 -i pulse -c copy -f s16le -threads 0 -"
+LOAD_PULSE="pacat --raw --process-time-msec=1 --latency=2000 --stream-name=gamedev --rate=48001"
+RESTART_SEC=60
+
+verbose() {
+  [ "$VERBOSE" = "1" ]
+}
+
+forward() {
+  sh -c "$SHELL \"$DUMP_PULSE\"" 2>/dev/null | $LOAD_PULSE
+}
+
+PID="unknown"
+
+is_running() {
+  ps h -p $PID >/dev/null 2>&1
+}
+print_status() {
+  (is_running && echo "FORWARDING") || echo "KILLED"
+}
+
+restart_count_down() {
+  RESTART_IN=$1
+  verbose && echo -n "Next restart in $RESTART_IN"
+  while [ $RESTART_IN -ne 0 ]
+  do
+    sleep 1
+    is_running || break
+    RESTART_IN=$(($RESTART_IN - 1))
+    verbose && echo -n ", $RESTART_IN"
+  done
+  verbose && echo -n " "
+}
+
+while true
+do
+  forward &
+  PID=$!
+  is_running || break
+
+  restart_count_down $RESTART_SEC
+  CHILD_PIDS=`ps h -o pid --ppid $PID`
+  kill -TERM $CHILD_PIDS $PID 2>/dev/null
+  print_status
+done
+
+print_status
+
